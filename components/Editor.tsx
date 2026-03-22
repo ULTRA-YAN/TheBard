@@ -171,7 +171,7 @@ export default function Editor({
         <div
           ref={overlayRef}
           onClick={handleOverlayClick}
-          className="absolute inset-0 w-full h-full p-6 font-mono text-[15px] leading-relaxed overflow-auto whitespace-pre-wrap break-words custom-scrollbar text-[var(--text-primary)] pointer-events-auto"
+          className="editor-overlay absolute inset-0 w-full h-full p-6 font-mono text-[15px] leading-relaxed overflow-auto whitespace-pre-wrap break-words custom-scrollbar text-[var(--text-primary)] pointer-events-auto"
           style={{ zIndex: 2 }}
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
