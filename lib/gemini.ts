@@ -91,9 +91,9 @@ export async function analyzeText(
   text: string,
   mode: ContentMode
 ): Promise<AnalysisResult> {
-  const apiKey = process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
   if (!apiKey) {
-    throw new Error("GOOGLE_API_KEY not configured");
+    throw new Error("API key not configured. Set NEXT_PUBLIC_GOOGLE_API_KEY in your environment.");
   }
 
   // Call the REST API directly — the SDK's .text() method can corrupt

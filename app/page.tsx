@@ -7,6 +7,7 @@ import {
   Issue,
   Category,
 } from "@/lib/types";
+import { analyzeText } from "@/lib/gemini";
 import Header from "@/components/Header";
 import Editor from "@/components/Editor";
 import FeedbackPanel from "@/components/FeedbackPanel";
@@ -127,19 +128,9 @@ export default function Home() {
     setActiveIssueId(null);
 
     try {
-      const res = await fetch("/api/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, mode: "general" }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-
-      const data: AnalysisResult = await res.json();
+      const data = await analyzeText(text, "general");
+      // Check if aborted while waiting
+      if (controller.signal.aborted) return;
       setResult(data);
       setIssues(data.issues);
       setVisibleCategories(new Set(ALL_CATEGORIES));
