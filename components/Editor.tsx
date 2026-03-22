@@ -159,7 +159,7 @@ export default function Editor({
           }
         }}
         spellCheck={false}
-        placeholder={`Paste your article here...\n\nWriteCheck analyzes your writing across five pillars:\n\n  Grammar — parts of speech, agreement, confusions\n  Syntax — sentence structure, fragments, run-ons\n  Mechanics — spelling, capitalization, formatting\n  Punctuation — commas, semicolons, dashes\n  Style — voice, clarity, banned words, readability\n\nHit "${isMac ? "⌘" : "Ctrl"}+Enter" or click "Check writing" to analyze.`}
+        placeholder={`Paste your article here...\n\nShakespeare analyzes your writing across five pillars:\n\n  Grammar — parts of speech, agreement, confusions\n  Syntax — sentence structure, fragments, run-ons\n  Mechanics — spelling, capitalization, formatting\n  Punctuation — commas, semicolons, dashes\n  Style — voice, clarity, banned words, readability\n\nHit "${isMac ? "⌘" : "Ctrl"}+Enter" or click "Check writing" to analyze.`}
         className={`absolute inset-0 w-full h-full resize-none p-6 font-mono text-[15px] leading-relaxed bg-transparent border-none outline-none custom-scrollbar text-[var(--text-primary)] placeholder:text-[var(--text-muted)] placeholder:opacity-60 ${
           showOverlay ? "text-transparent caret-transparent" : ""
         }`}

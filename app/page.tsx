@@ -20,9 +20,9 @@ const ALL_CATEGORIES: Category[] = [
   "style",
 ];
 
-const DRAFT_KEY = "writecheck-draft";
-const DRAFT_TS_KEY = "writecheck-draft-ts";
-const DARK_KEY = "writecheck-dark-mode";
+const DRAFT_KEY = "shakespeare-draft";
+const DRAFT_TS_KEY = "shakespeare-draft-ts";
+const DARK_KEY = "shakespeare-dark-mode";
 const DRAFT_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 interface UndoSnapshot {

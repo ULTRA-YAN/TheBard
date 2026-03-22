@@ -32,7 +32,7 @@ export default function EmptyState() {
         Paste your text and hit Check
       </h3>
       <p className="text-sm text-[var(--text-muted)] mb-8 max-w-[280px]">
-        WriteCheck analyzes your writing across five pillars for grammar, clarity, and style.
+        Shakespeare analyzes your writing across five pillars for grammar, clarity, and style.
       </p>
 
       <div className="w-full max-w-[300px] space-y-3">

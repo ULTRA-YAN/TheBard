@@ -39,7 +39,7 @@ export default function Header({
       {/* Left: Logo */}
       <div className="flex items-center gap-5">
         <h1 className="font-display text-2xl text-[var(--text-primary)] italic">
-          WriteCheck
+          Shakespeare
         </h1>
       </div>
 

@@ -4,7 +4,7 @@ import { BANNED_WORDS, BANNED_PHRASES, MODE_CONFIGS } from "@/config/style-rules
 export function buildSystemPrompt(mode: ContentMode): string {
   const config = MODE_CONFIGS[mode];
 
-  return `You are WriteCheck — an expert English language editor. You analyze text across five dimensions and return structured JSON with issues, scores, and stats.
+  return `You are Shakespeare — an expert English language editor. You analyze text across five dimensions and return structured JSON with issues, scores, and stats.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this exact schema. No markdown, no commentary, no code fences.
