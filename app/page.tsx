@@ -1,0 +1,337 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  AppStatus,
+  AnalysisResult,
+  Issue,
+  Category,
+} from "@/lib/types";
+import Header from "@/components/Header";
+import Editor from "@/components/Editor";
+import FeedbackPanel from "@/components/FeedbackPanel";
+
+const ALL_CATEGORIES: Category[] = [
+  "grammar",
+  "syntax",
+  "mechanics",
+  "punctuation",
+  "style",
+];
+
+const DRAFT_KEY = "writecheck-draft";
+const DRAFT_TS_KEY = "writecheck-draft-ts";
+const DARK_KEY = "writecheck-dark-mode";
+const DRAFT_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+interface UndoSnapshot {
+  text: string;
+  issues: Issue[];
+  result: AnalysisResult | null;
+  status: AppStatus;
+}
+
+export default function Home() {
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<AppStatus>("idle");
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
+  const [visibleCategories, setVisibleCategories] = useState<Set<Category>>(
+    new Set(ALL_CATEGORIES)
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const checkAbort = useRef<AbortController | null>(null);
+
+  // Undo history stack
+  const undoStack = useRef<UndoSnapshot[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+
+  const pushUndo = useCallback((snapshot: UndoSnapshot) => {
+    undoStack.current.push(snapshot);
+    if (undoStack.current.length > 50) undoStack.current.shift();
+    setCanUndo(true);
+  }, []);
+
+  const popUndo = useCallback(() => {
+    const snapshot = undoStack.current.pop();
+    if (!snapshot) return;
+    setText(snapshot.text);
+    setIssues(snapshot.issues);
+    setResult(snapshot.result);
+    setStatus(snapshot.status);
+    setActiveIssueId(null);
+    setCanUndo(undoStack.current.length > 0);
+  }, []);
+
+  // Hydrate from localStorage
+  useEffect(() => {
+    const dark = localStorage.getItem(DARK_KEY) === "true";
+    setIsDark(dark);
+    if (dark) document.documentElement.classList.add("dark");
+
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    const savedTs = localStorage.getItem(DRAFT_TS_KEY);
+    if (savedDraft && savedTs) {
+      const age = Date.now() - parseInt(savedTs, 10);
+      if (age < DRAFT_TTL) {
+        setText(savedDraft);
+      } else {
+        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(DRAFT_TS_KEY);
+      }
+    }
+
+    setMounted(true);
+  }, []);
+
+  // Persist dark mode
+  useEffect(() => {
+    if (!mounted) return;
+    localStorage.setItem(DARK_KEY, String(isDark));
+    if (isDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [isDark, mounted]);
+
+  // Persist draft
+  useEffect(() => {
+    if (!mounted) return;
+    if (text) {
+      localStorage.setItem(DRAFT_KEY, text);
+      localStorage.setItem(DRAFT_TS_KEY, String(Date.now()));
+    }
+  }, [text, mounted]);
+
+  const wordCount = text.trim()
+    ? text.trim().split(/\s+/).length
+    : 0;
+
+  const canCheck = text.length >= 10 && status !== "checking";
+
+  const runCheck = useCallback(async () => {
+    if (!canCheck) return;
+
+    if (checkAbort.current) checkAbort.current.abort();
+    const controller = new AbortController();
+    checkAbort.current = controller;
+
+    setStatus("checking");
+    setErrorMessage(null);
+    setIsEditing(false);
+    setActiveIssueId(null);
+
+    try {
+      const res = await fetch("/api/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, mode: "general" }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      const data: AnalysisResult = await res.json();
+      setResult(data);
+      setIssues(data.issues);
+      setVisibleCategories(new Set(ALL_CATEGORIES));
+      setStatus("done");
+    } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") return;
+      setStatus("error");
+      setErrorMessage(
+        (err as Error).message || "Analysis failed. Try again."
+      );
+    }
+  }, [text, canCheck]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        runCheck();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && canUndo) {
+        // Only intercept undo when we have fix history to undo
+        // Don't intercept normal text editing undo
+        if (status === "done") {
+          e.preventDefault();
+          popUndo();
+        }
+      }
+      if (e.key === "Escape") {
+        setActiveIssueId(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [runCheck, canUndo, popUndo, status]);
+
+  const handleTextChange = useCallback(
+    (newText: string) => {
+      setText(newText);
+      if (status === "done") {
+        setStatus("idle");
+        setResult(null);
+        setIssues([]);
+        setActiveIssueId(null);
+      }
+    },
+    [status]
+  );
+
+  const handleEditToggle = useCallback(
+    (editing: boolean) => {
+      setIsEditing(editing);
+      if (editing) {
+        setStatus("idle");
+        setResult(null);
+        setIssues([]);
+        setActiveIssueId(null);
+      }
+    },
+    []
+  );
+
+  const handleApplyFix = useCallback(
+    (issue: Issue) => {
+      // Save undo snapshot before applying
+      pushUndo({ text, issues, result, status });
+
+      let newText = text;
+      let searchFrom = 0;
+      for (let i = 0; i <= issue.occurrenceIndex; i++) {
+        const pos = newText.indexOf(issue.flaggedText, searchFrom);
+        if (pos === -1) return;
+        if (i === issue.occurrenceIndex) {
+          newText =
+            newText.slice(0, pos) +
+            issue.suggestion +
+            newText.slice(pos + issue.flaggedText.length);
+          break;
+        }
+        searchFrom = pos + 1;
+      }
+      setText(newText);
+      setIssues((prev) => prev.filter((i) => i.id !== issue.id));
+      setActiveIssueId(null);
+    },
+    [text, issues, result, status, pushUndo]
+  );
+
+  const handleApplyAll = useCallback(() => {
+    // Save undo snapshot before applying all
+    pushUndo({ text, issues, result, status });
+
+    const sorted = [...issues]
+      .map((issue) => {
+        let pos = -1;
+        let searchFrom = 0;
+        for (let i = 0; i <= issue.occurrenceIndex; i++) {
+          pos = text.indexOf(issue.flaggedText, searchFrom);
+          if (pos === -1) break;
+          searchFrom = pos + 1;
+        }
+        return { ...issue, _pos: pos };
+      })
+      .filter((i) => i._pos !== -1)
+      .sort((a, b) => b._pos - a._pos);
+
+    let newText = text;
+    for (const issue of sorted) {
+      newText =
+        newText.slice(0, issue._pos) +
+        issue.suggestion +
+        newText.slice(issue._pos + issue.flaggedText.length);
+    }
+
+    setText(newText);
+    setIssues([]);
+    setResult(null);
+    setStatus("idle");
+    setActiveIssueId(null);
+  }, [text, issues, result, status, pushUndo]);
+
+  const handleDismiss = useCallback((id: string) => {
+    setIssues((prev) => prev.filter((i) => i.id !== id));
+    setActiveIssueId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const handleToggleCategory = useCallback((cat: Category) => {
+    setVisibleCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) {
+        next.delete(cat);
+      } else {
+        next.add(cat);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectIssue = useCallback((id: string | null) => {
+    setActiveIssueId(id);
+    if (id) {
+      setTimeout(() => {
+        const card = document.querySelector(`[data-issue-id="${id}"]`);
+        card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 50);
+    }
+  }, []);
+
+  if (!mounted) return null;
+
+  return (
+    <div className="h-screen flex flex-col">
+      <Header
+        wordCount={wordCount}
+        score={result?.scores.overall ?? null}
+        status={status}
+        isDark={isDark}
+        onToggleDark={() => setIsDark((d) => !d)}
+        onCheck={runCheck}
+        canCheck={canCheck}
+        canUndo={canUndo}
+        onUndo={popUndo}
+      />
+
+      <div className="flex flex-1 min-h-0">
+        <Editor
+          text={text}
+          onTextChange={handleTextChange}
+          issues={issues}
+          activeIssueId={activeIssueId}
+          onSelectIssue={handleSelectIssue}
+          visibleCategories={visibleCategories}
+          isEditing={isEditing}
+          onEditToggle={handleEditToggle}
+          hasResults={status === "done"}
+        />
+
+        <FeedbackPanel
+          result={result}
+          issues={issues}
+          activeIssueId={activeIssueId}
+          onSelectIssue={handleSelectIssue}
+          onApplyFix={handleApplyFix}
+          onDismiss={handleDismiss}
+          onApplyAll={handleApplyAll}
+          visibleCategories={visibleCategories}
+          onToggleCategory={handleToggleCategory}
+          status={status}
+          errorMessage={errorMessage}
+          onRetry={runCheck}
+        />
+      </div>
+    </div>
+  );
+}
