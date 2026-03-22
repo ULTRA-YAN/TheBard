@@ -87,6 +87,10 @@ const RESPONSE_SCHEMA = {
   required: ["issues", "scores", "stats"],
 };
 
+// Use gemini-2.0-flash for speed (3-4x faster than 2.5-flash for this task)
+const MODEL = "gemini-2.0-flash";
+const CHUNK_WORD_LIMIT = 1500; // Split articles larger than this into parallel chunks
+
 export async function analyzeText(
   text: string,
   mode: ContentMode
@@ -96,10 +100,82 @@ export async function analyzeText(
     throw new Error("API key not configured. Set NEXT_PUBLIC_GOOGLE_API_KEY in your environment.");
   }
 
-  // Call the REST API directly — the SDK's .text() method can corrupt
-  // JSON when Gemini includes unescaped quotes in string values.
-  // The REST API returns properly structured JSON parts we can use directly.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const wordCount = text.trim().split(/\s+/).length;
+
+  // For short texts, single call. For long texts, split into chunks and run in parallel.
+  if (wordCount <= CHUNK_WORD_LIMIT) {
+    return callGemini(apiKey, text, mode);
+  }
+
+  // Split text into chunks at paragraph boundaries
+  const chunks = splitIntoChunks(text, CHUNK_WORD_LIMIT);
+
+  // Run all chunks in parallel
+  const results = await Promise.all(
+    chunks.map((chunk) => callGemini(apiKey, chunk, mode))
+  );
+
+  // Merge results
+  return mergeResults(results, text);
+}
+
+function splitIntoChunks(text: string, maxWords: number): string[] {
+  const paragraphs = text.split(/\n\s*\n/);
+  const chunks: string[] = [];
+  let current = "";
+  let currentWords = 0;
+
+  for (const para of paragraphs) {
+    const paraWords = para.trim().split(/\s+/).length;
+    if (currentWords + paraWords > maxWords && current.length > 0) {
+      chunks.push(current.trim());
+      current = para;
+      currentWords = paraWords;
+    } else {
+      current += (current ? "\n\n" : "") + para;
+      currentWords += paraWords;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+
+  return chunks;
+}
+
+function mergeResults(results: AnalysisResult[], fullText: string): AnalysisResult {
+  // Combine all issues, re-index IDs
+  const allIssues = results.flatMap((r) => r.issues);
+  const reindexed = allIssues.map((issue, i) => ({ ...issue, id: `issue_${i + 1}` }));
+
+  // Average scores weighted by chunk size
+  const totalIssues = allIssues.length;
+  const avgScores = {
+    overall: Math.round(results.reduce((s, r) => s + r.scores.overall, 0) / results.length),
+    grammar: Math.round(results.reduce((s, r) => s + r.scores.grammar, 0) / results.length),
+    syntax: Math.round(results.reduce((s, r) => s + r.scores.syntax, 0) / results.length),
+    mechanics: Math.round(results.reduce((s, r) => s + r.scores.mechanics, 0) / results.length),
+    punctuation: Math.round(results.reduce((s, r) => s + r.scores.punctuation, 0) / results.length),
+    style: Math.round(results.reduce((s, r) => s + r.scores.style, 0) / results.length),
+  };
+
+  // Sum stats
+  const stats = {
+    wordCount: results.reduce((s, r) => s + r.stats.wordCount, 0),
+    sentenceCount: results.reduce((s, r) => s + r.stats.sentenceCount, 0),
+    avgSentenceLength: Math.round(results.reduce((s, r) => s + r.stats.avgSentenceLength, 0) / results.length),
+    readabilityGrade: Math.round(results.reduce((s, r) => s + r.stats.readabilityGrade, 0) / results.length * 10) / 10,
+    passiveVoiceCount: results.reduce((s, r) => s + r.stats.passiveVoiceCount, 0),
+    adverbCount: results.reduce((s, r) => s + r.stats.adverbCount, 0),
+  };
+
+  return validateAndClean({ issues: reindexed, scores: avgScores, stats }, fullText);
+}
+
+async function callGemini(
+  apiKey: string,
+  text: string,
+  mode: ContentMode
+): Promise<AnalysisResult> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
 
   const body = {
     systemInstruction: {
@@ -114,7 +190,7 @@ export async function analyzeText(
     generationConfig: {
       temperature: 0.1,
       topP: 0.95,
-      maxOutputTokens: 65536,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
     },
@@ -128,15 +204,13 @@ export async function analyzeText(
 
   if (!res.ok) {
     const errBody = await res.text();
-    if (res.status === 429) throw Object.assign(new Error("Rate limited"), { status: 429 });
+    if (res.status === 429) throw Object.assign(new Error("Rate limited. Wait a moment and try again."), { status: 429 });
     if (res.status === 401 || res.status === 403) throw Object.assign(new Error("Invalid API key"), { status: 401 });
     throw new Error(`Gemini API error ${res.status}: ${errBody.slice(0, 200)}`);
   }
 
   const data = await res.json();
 
-  // The response structure: data.candidates[0].content.parts[].text
-  // Gemini may split JSON across multiple parts — concatenate them all.
   const candidate = data.candidates?.[0];
   const parts = candidate?.content?.parts;
   if (!parts || parts.length === 0) {
@@ -144,31 +218,22 @@ export async function analyzeText(
   }
 
   let rawJson: string = parts.map((p: { text?: string }) => p.text || "").join("");
-
-  // Strip markdown code fences if present
   rawJson = rawJson.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
 
   let parsed: AnalysisResult;
   try {
     parsed = JSON.parse(rawJson);
   } catch {
-    // Try fixing unescaped quotes and control chars
     try {
-      const fixed = fixBrokenJsonStrings(rawJson);
-      parsed = JSON.parse(fixed);
+      parsed = JSON.parse(fixBrokenJsonStrings(rawJson));
     } catch {
-      // Response may be truncated — try to salvage
-      const repaired = repairTruncatedJson(rawJson);
       try {
-        parsed = JSON.parse(repaired);
+        parsed = JSON.parse(repairTruncatedJson(rawJson));
       } catch {
-        // Last resort: extract just the issues array and build a minimal result
         try {
           parsed = extractPartialResult(rawJson);
-        } catch (finalErr) {
-          console.error("All JSON parse attempts failed.");
-          console.error("Raw length:", rawJson.length, "Last 200 chars:", rawJson.slice(-200));
-          throw new Error("Analysis failed — Gemini returned malformed data. Try again with shorter text.");
+        } catch {
+          throw new Error("Analysis failed — try again.");
         }
       }
     }
