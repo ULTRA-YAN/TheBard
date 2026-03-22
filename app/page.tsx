@@ -167,15 +167,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, [runCheck, canUndo, popUndo, status]);
 
-  // Track whether user has run at least one check (enables auto re-check)
-  const hasCheckedOnce = useRef(false);
-  const recheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Mark that user has checked at least once
-  useEffect(() => {
-    if (status === "done") hasCheckedOnce.current = true;
-  }, [status]);
-
   const handleTextChange = useCallback(
     (newText: string) => {
       setText(newText);
@@ -188,25 +179,6 @@ export default function Home() {
     },
     [status]
   );
-
-  // Auto re-check 3 seconds after user stops typing (only after first manual check)
-  useEffect(() => {
-    if (recheckTimer.current) clearTimeout(recheckTimer.current);
-    if (!hasCheckedOnce.current) return;
-    if (status === "checking") return;
-    if (text.length < 10) return;
-
-    recheckTimer.current = setTimeout(() => {
-      // Only auto-check if we're in idle state (text was edited after a check)
-      if (hasCheckedOnce.current && text.length >= 10) {
-        runCheck();
-      }
-    }, 3000);
-
-    return () => {
-      if (recheckTimer.current) clearTimeout(recheckTimer.current);
-    };
-  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEditToggle = useCallback(
     (editing: boolean) => {
