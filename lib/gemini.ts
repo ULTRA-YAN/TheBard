@@ -135,40 +135,85 @@ export async function analyzeText(
 
   const data = await res.json();
 
-  // The response structure: data.candidates[0].content.parts[0].text
-  // When responseMimeType is "application/json", the parts contain JSON text.
+  // The response structure: data.candidates[0].content.parts[].text
+  // Gemini may split JSON across multiple parts — concatenate them all.
   const candidate = data.candidates?.[0];
-  if (!candidate?.content?.parts?.[0]?.text) {
+  const parts = candidate?.content?.parts;
+  if (!parts || parts.length === 0) {
     throw new Error("Empty response from Gemini");
   }
 
-  // Check if response was truncated
-  const finishReason = candidate.finishReason;
-  let rawJson: string = candidate.content.parts[0].text;
+  let rawJson: string = parts.map((p: { text?: string }) => p.text || "").join("");
+
+  // Strip markdown code fences if present
+  rawJson = rawJson.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
 
   let parsed: AnalysisResult;
   try {
     parsed = JSON.parse(rawJson);
   } catch {
-    // Try fixing unescaped quotes
+    // Try fixing unescaped quotes and control chars
     try {
       const fixed = fixBrokenJsonStrings(rawJson);
       parsed = JSON.parse(fixed);
     } catch {
-      // Response may be truncated (hit token limit). Try to salvage it
-      // by closing all open JSON structures.
+      // Response may be truncated — try to salvage
       const repaired = repairTruncatedJson(rawJson);
       try {
         parsed = JSON.parse(repaired);
-      } catch (finalErr) {
-        console.error("All JSON parse attempts failed. finishReason:", finishReason);
-        console.error("Raw length:", rawJson.length, "Last 100 chars:", rawJson.slice(-100));
-        throw finalErr;
+      } catch {
+        // Last resort: extract just the issues array and build a minimal result
+        try {
+          parsed = extractPartialResult(rawJson);
+        } catch (finalErr) {
+          console.error("All JSON parse attempts failed.");
+          console.error("Raw length:", rawJson.length, "Last 200 chars:", rawJson.slice(-200));
+          throw new Error("Analysis failed — Gemini returned malformed data. Try again with shorter text.");
+        }
       }
     }
   }
 
   return validateAndClean(parsed, text);
+}
+
+/**
+ * Last resort: use regex to extract individual issue objects from broken JSON.
+ * Even if the overall JSON is malformed, individual objects are often valid.
+ */
+function extractPartialResult(raw: string): AnalysisResult {
+  const issuePattern = /\{[^{}]*"id"\s*:\s*"[^"]*"[^{}]*"category"\s*:\s*"[^"]*"[^{}]*"flaggedText"\s*:\s*"[^"]*"[^{}]*\}/g;
+  const matches = raw.match(issuePattern) || [];
+
+  const issues = [];
+  for (const m of matches) {
+    try {
+      const obj = JSON.parse(m);
+      if (obj.id && obj.category && obj.flaggedText) {
+        issues.push(obj);
+      }
+    } catch {
+      // skip malformed individual objects
+    }
+  }
+
+  // Try to extract scores
+  const scoresMatch = raw.match(/"scores"\s*:\s*(\{[^{}]+\})/);
+  let scores = { overall: 50, grammar: 50, syntax: 50, mechanics: 50, punctuation: 50, style: 50 };
+  if (scoresMatch) {
+    try { scores = { ...scores, ...JSON.parse(scoresMatch[1]) }; } catch { /* use defaults */ }
+  }
+
+  // Try to extract stats
+  const statsMatch = raw.match(/"stats"\s*:\s*(\{[^{}]+\})/);
+  let stats = { wordCount: 0, sentenceCount: 0, avgSentenceLength: 0, readabilityGrade: 0, passiveVoiceCount: 0, adverbCount: 0 };
+  if (statsMatch) {
+    try { stats = { ...stats, ...JSON.parse(statsMatch[1]) }; } catch { /* use defaults */ }
+  }
+
+  if (issues.length === 0) throw new Error("No valid issues extracted");
+
+  return { issues, scores, stats };
 }
 
 /**
