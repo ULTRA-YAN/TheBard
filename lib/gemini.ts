@@ -89,7 +89,7 @@ const RESPONSE_SCHEMA = {
 
 // Use gemini-2.0-flash for speed (3-4x faster than 2.5-flash for this task)
 const MODEL = "gemini-2.0-flash";
-const CHUNK_WORD_LIMIT = 1500; // Split articles larger than this into parallel chunks
+const CHUNK_WORD_LIMIT = 3000; // Split articles larger than this into parallel chunks
 
 export async function analyzeText(
   text: string,
@@ -196,17 +196,28 @@ async function callGemini(
     },
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // Retry up to 3 times on rate limits with increasing backoff
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    if (res.status === 429) throw Object.assign(new Error("Rate limited. Wait a moment and try again."), { status: 429 });
-    if (res.status === 401 || res.status === 403) throw Object.assign(new Error("Invalid API key"), { status: 401 });
-    throw new Error(`Gemini API error ${res.status}: ${errBody.slice(0, 200)}`);
+    if (res.status === 429 && attempt < 2) {
+      // Wait 10s, 20s before retrying
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 10000));
+      continue;
+    }
+    break;
+  }
+
+  if (!res || !res.ok) {
+    const errBody = res ? await res.text() : "No response";
+    if (res?.status === 429) throw Object.assign(new Error("Rate limited. Wait a minute and try again."), { status: 429 });
+    if (res?.status === 401 || res?.status === 403) throw Object.assign(new Error("Invalid API key"), { status: 401 });
+    throw new Error(`Gemini API error ${res?.status}: ${errBody.slice(0, 200)}`);
   }
 
   const data = await res.json();
