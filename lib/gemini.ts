@@ -110,10 +110,11 @@ export async function analyzeText(
   // Split text into chunks at paragraph boundaries
   const chunks = splitIntoChunks(text, CHUNK_WORD_LIMIT);
 
-  // Run all chunks in parallel
-  const results = await Promise.all(
-    chunks.map((chunk) => callGemini(apiKey, chunk, mode))
-  );
+  // Run chunks sequentially to avoid rate limits
+  const results: AnalysisResult[] = [];
+  for (const chunk of chunks) {
+    results.push(await callGemini(apiKey, chunk, mode));
+  }
 
   // Merge results
   return mergeResults(results, text);
