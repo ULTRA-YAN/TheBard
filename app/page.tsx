@@ -127,10 +127,23 @@ export default function Home() {
     ? text.trim().split(/\s+/).length
     : 0;
 
+  const lastCheckTime = useRef<number>(0);
+  const COOLDOWN_MS = 10000; // 10 second cooldown between checks
+
   const canCheck = text.length >= 10 && status !== "checking";
 
   const runCheck = useCallback(async () => {
     if (!canCheck) return;
+
+    // Enforce cooldown
+    const now = Date.now();
+    const elapsed = now - lastCheckTime.current;
+    if (elapsed < COOLDOWN_MS) {
+      setErrorMessage(`Please wait ${Math.ceil((COOLDOWN_MS - elapsed) / 1000)}s before checking again.`);
+      setStatus("error");
+      return;
+    }
+    lastCheckTime.current = now;
 
     if (checkAbort.current) checkAbort.current.abort();
     const controller = new AbortController();
