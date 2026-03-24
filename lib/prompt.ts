@@ -37,7 +37,8 @@ Return ONLY valid JSON matching this exact schema. No markdown, no commentary, n
     "readabilityGrade": number,
     "passiveVoiceCount": number,
     "adverbCount": number
-  }
+  },
+  "tone": "Formal" | "Casual" | "Persuasive" | "Informative" | "Conversational" | "Academic" | "Technical"
 }
 
 ## CRITICAL RULES FOR flaggedText

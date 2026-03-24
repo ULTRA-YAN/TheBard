@@ -36,6 +36,7 @@ function validateAndClean(result: AnalysisResult, inputText: string): AnalysisRe
       passiveVoiceCount: result.stats?.passiveVoiceCount ?? 0,
       adverbCount: result.stats?.adverbCount ?? 0,
     },
+    tone: result.tone || "Informative",
   };
 }
 
@@ -83,8 +84,9 @@ const RESPONSE_SCHEMA = {
       },
       required: ["wordCount", "sentenceCount", "avgSentenceLength", "readabilityGrade", "passiveVoiceCount", "adverbCount"],
     },
+    tone: { type: "STRING" as const },
   },
-  required: ["issues", "scores", "stats"],
+  required: ["issues", "scores", "stats", "tone"],
 };
 
 // Use gemini-2.0-flash for speed (3-4x faster than 2.5-flash for this task)

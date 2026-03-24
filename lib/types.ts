@@ -35,6 +35,16 @@ export interface AnalysisResult {
   issues: Issue[];
   scores: Scores;
   stats: Stats;
+  tone?: string;
+}
+
+export interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  preview: string;
+  text: string;
+  result: AnalysisResult;
+  score: number;
 }
 
 export interface CheckRequest {

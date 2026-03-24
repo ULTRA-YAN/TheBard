@@ -22,6 +22,14 @@ interface FeedbackPanelProps {
 
 const ALL_CATEGORIES: Category[] = ["grammar", "syntax", "mechanics", "punctuation", "style"];
 
+function getReadabilityLabel(grade: number): string {
+  if (grade <= 6) return "Very easy";
+  if (grade <= 8) return "Easy to read";
+  if (grade <= 10) return "Moderate";
+  if (grade <= 12) return "Difficult";
+  return "Very difficult";
+}
+
 const categoryScoreBarColors: Record<Category, string> = {
   grammar: "bg-red-500",
   syntax: "bg-orange-500",
@@ -127,14 +135,24 @@ export default function FeedbackPanel({
           </div>
         </div>
 
-        {/* Quick stats */}
-        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-[var(--border-primary)]">
-          <div className="text-center">
+        {/* Readability + Tone */}
+        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-[var(--border-primary)]">
+          <div className="flex-1 px-3 py-2 rounded-lg bg-[var(--bg-primary)]">
             <div className="text-xs font-semibold text-[var(--text-primary)]">
-              {result.stats.readabilityGrade.toFixed(1)}
+              Grade {result.stats.readabilityGrade.toFixed(1)} — {getReadabilityLabel(result.stats.readabilityGrade)}
             </div>
-            <div className="text-[10px] text-[var(--text-muted)]">Grade</div>
+            <div className="text-[10px] text-[var(--text-muted)]">Readability</div>
           </div>
+          {result.tone && (
+            <div className="px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+              <div className="text-xs font-semibold text-purple-700 dark:text-purple-300">{result.tone}</div>
+              <div className="text-[10px] text-purple-500 dark:text-purple-400">Tone</div>
+            </div>
+          )}
+        </div>
+
+        {/* Quick stats */}
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-[var(--border-primary)]">
           <div className="text-center">
             <div className="text-xs font-semibold text-[var(--text-primary)]">
               {result.stats.passiveVoiceCount}

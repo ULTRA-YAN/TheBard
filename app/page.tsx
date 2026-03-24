@@ -6,6 +6,7 @@ import {
   AnalysisResult,
   Issue,
   Category,
+  HistoryEntry,
 } from "@/lib/types";
 import { analyzeText } from "@/lib/gemini";
 import Header from "@/components/Header";
@@ -23,7 +24,10 @@ const ALL_CATEGORIES: Category[] = [
 const DRAFT_KEY = "shakespeare-draft";
 const DRAFT_TS_KEY = "shakespeare-draft-ts";
 const DARK_KEY = "shakespeare-dark-mode";
+const GOAL_KEY = "shakespeare-word-goal";
+const HISTORY_KEY = "shakespeare-history";
 const DRAFT_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_HISTORY = 10;
 
 interface UndoSnapshot {
   text: string;
@@ -45,6 +49,8 @@ export default function Home() {
   const [isDark, setIsDark] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [wordGoal, setWordGoal] = useState<number | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const checkAbort = useRef<AbortController | null>(null);
 
   // Undo history stack
@@ -73,6 +79,14 @@ export default function Home() {
     const dark = localStorage.getItem(DARK_KEY) === "true";
     setIsDark(dark);
     if (dark) document.documentElement.classList.add("dark");
+
+    const savedGoal = localStorage.getItem(GOAL_KEY);
+    if (savedGoal) setWordGoal(parseInt(savedGoal, 10));
+
+    try {
+      const savedHistory = localStorage.getItem(HISTORY_KEY);
+      if (savedHistory) setHistory(JSON.parse(savedHistory));
+    } catch { /* ignore */ }
 
     const savedDraft = localStorage.getItem(DRAFT_KEY);
     const savedTs = localStorage.getItem(DRAFT_TS_KEY);
@@ -135,6 +149,21 @@ export default function Home() {
       setIssues(data.issues);
       setVisibleCategories(new Set(ALL_CATEGORIES));
       setStatus("done");
+
+      // Save to history
+      const entry: HistoryEntry = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        preview: text.slice(0, 80).replace(/\n/g, " "),
+        text,
+        result: data,
+        score: data.scores.overall,
+      };
+      setHistory((prev) => {
+        const next = [entry, ...prev].slice(0, MAX_HISTORY);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
     } catch (err: unknown) {
       if ((err as Error).name === "AbortError") return;
       setStatus("error");
@@ -269,6 +298,25 @@ export default function Home() {
     });
   }, []);
 
+  const handleSetWordGoal = useCallback((goal: number | null) => {
+    setWordGoal(goal);
+    if (goal) {
+      localStorage.setItem(GOAL_KEY, String(goal));
+    } else {
+      localStorage.removeItem(GOAL_KEY);
+    }
+  }, []);
+
+  const handleLoadHistory = useCallback((entry: HistoryEntry) => {
+    setText(entry.text);
+    setResult(entry.result);
+    setIssues(entry.result.issues);
+    setVisibleCategories(new Set(ALL_CATEGORIES));
+    setStatus("done");
+    setIsEditing(false);
+    setActiveIssueId(null);
+  }, []);
+
   const handleSelectIssue = useCallback((id: string | null) => {
     setActiveIssueId(id);
     if (id) {
@@ -305,6 +353,12 @@ export default function Home() {
         canCheck={canCheck}
         canUndo={canUndo}
         onUndo={popUndo}
+        hasText={text.length > 0}
+        text={text}
+        wordGoal={wordGoal}
+        onSetWordGoal={handleSetWordGoal}
+        history={history}
+        onLoadHistory={handleLoadHistory}
       />
 
       <div className="flex flex-1 min-h-0">
