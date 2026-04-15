@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Issue, AnalysisResult, Category, CATEGORY_COLORS, SEVERITY_ORDER } from "@/lib/types";
 import ScoreRing from "./ScoreRing";
 import IssueCard from "./IssueCard";
@@ -18,6 +19,7 @@ interface FeedbackPanelProps {
   status: "idle" | "checking" | "done" | "error";
   errorMessage: string | null;
   onRetry: () => void;
+  text: string;
 }
 
 const ALL_CATEGORIES: Category[] = ["grammar", "syntax", "mechanics", "punctuation", "style"];
@@ -38,6 +40,49 @@ const categoryScoreBarColors: Record<Category, string> = {
   style: "bg-purple-500",
 };
 
+function buildMarkdownReport(text: string, result: AnalysisResult, issues: Issue[]): string {
+  const lines: string[] = [];
+  lines.push("# Writing Analysis Report\n");
+  lines.push(`**Overall Score: ${result.scores.overall}/100**\n`);
+  lines.push("## Scores\n");
+  lines.push(`| Category | Score |`);
+  lines.push(`| --- | --- |`);
+  for (const cat of ALL_CATEGORIES) {
+    lines.push(`| ${CATEGORY_COLORS[cat].name} | ${result.scores[cat]}/100 |`);
+  }
+  lines.push("");
+  lines.push("## Stats\n");
+  lines.push(`- **Words:** ${result.stats.wordCount}`);
+  lines.push(`- **Sentences:** ${result.stats.sentenceCount}`);
+  lines.push(`- **Avg sentence length:** ${result.stats.avgSentenceLength.toFixed(1)}`);
+  lines.push(`- **Readability:** Grade ${result.stats.readabilityGrade.toFixed(1)} — ${getReadabilityLabel(result.stats.readabilityGrade)}`);
+  lines.push(`- **Passive voice:** ${result.stats.passiveVoiceCount}`);
+  lines.push(`- **Adverbs:** ${result.stats.adverbCount}`);
+  if (result.tone) lines.push(`- **Tone:** ${result.tone}`);
+  lines.push("");
+
+  if (issues.length > 0) {
+    lines.push(`## Issues (${issues.length})\n`);
+    for (const issue of issues) {
+      const severity = issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1);
+      lines.push(`### ${CATEGORY_COLORS[issue.category].name} — ${severity}`);
+      lines.push(`- **Flagged:** "${issue.flaggedText}"`);
+      lines.push(`- **Suggestion:** ${issue.suggestion}`);
+      lines.push(`- **Why:** ${issue.explanation}`);
+      lines.push("");
+    }
+  } else {
+    lines.push("## Issues\n");
+    lines.push("No issues found.\n");
+  }
+
+  lines.push("---\n");
+  lines.push("## Original Text\n");
+  lines.push(text);
+
+  return lines.join("\n");
+}
+
 export default function FeedbackPanel({
   result,
   issues,
@@ -51,7 +96,17 @@ export default function FeedbackPanel({
   status,
   errorMessage,
   onRetry,
+  text,
 }: FeedbackPanelProps) {
+  const [copiedMd, setCopiedMd] = useState(false);
+
+  const handleCopyMd = async () => {
+    if (!result) return;
+    const md = buildMarkdownReport(text, result, issues);
+    await navigator.clipboard.writeText(md);
+    setCopiedMd(true);
+    setTimeout(() => setCopiedMd(false), 2000);
+  };
   if (status === "error" && errorMessage) {
     return (
       <div className="w-[420px] shrink-0 h-full border-l border-[var(--border-primary)] bg-[var(--bg-secondary)] flex flex-col items-center justify-center px-6 text-center">
@@ -171,6 +226,28 @@ export default function FeedbackPanel({
             </div>
             <div className="text-[10px] text-[var(--text-muted)]">Avg len</div>
           </div>
+          <button
+            onClick={handleCopyMd}
+            className="ml-auto flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            title={copiedMd ? "Copied!" : "Copy report as Markdown"}
+          >
+            {copiedMd ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Copied!
+              </>
+            ) : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                Copy MD
+              </>
+            )}
+          </button>
         </div>
       </div>
 

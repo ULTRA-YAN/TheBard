@@ -400,6 +400,7 @@ export default function Home() {
           status={status}
           errorMessage={errorMessage}
           onRetry={runCheck}
+          text={text}
         />
       </div>
     </div>
